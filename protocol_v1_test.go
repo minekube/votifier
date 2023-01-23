@@ -3,6 +3,7 @@ package votifier
 import (
 	"crypto/rsa"
 	"math/rand"
+	"reflect"
 	"testing"
 )
 
@@ -16,9 +17,7 @@ func (badRandomReader) Read(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func TestSerializationv1(t *testing.T) {
-	v := NewVote("golang", "golang", "127.0.0.1")
-
+func TestEncodeV1(t *testing.T) {
 	// Generate a set of keys for later use
 	key, err := rsa.GenerateKey(new(badRandomReader), 2048)
 	if err != nil {
@@ -27,7 +26,12 @@ func TestSerializationv1(t *testing.T) {
 	}
 
 	// Try to encrypt this vote.
-	s, err := v.serializev1(&key.PublicKey)
+	v := Vote{
+		ServiceName: "golang",
+		Username:    "golang",
+		Address:     "127.0.0.1",
+	}
+	s, err := v.EncodeV1(&key.PublicKey)
 	if err != nil {
 		t.Error(err)
 		return
@@ -39,14 +43,15 @@ func TestSerializationv1(t *testing.T) {
 	}
 
 	// Try to decrypt this vote.
-	d, err := deserializev1(*s, key)
+	var d Vote
+	err = d.DecodeV1(*s, key)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	if v != *d {
-		t.Error("Votes don't match")
+	if reflect.DeepEqual(v, d) {
+		t.Error("votes don't match")
 		return
 	}
 }

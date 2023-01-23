@@ -1,15 +1,15 @@
-// +build ignore
-
 package main
 
 import (
-	".."
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"flag"
 	"log"
+	"net"
+
+	"go.minekube.com/votifier"
 )
 
 var (
@@ -41,15 +41,24 @@ func main() {
 	log.Println("Your v2 token: " + token)
 
 	r := []votifier.ReceiverRecord{
-		votifier.ReceiverRecord{
-			PrivateKey: key,
-			TokenId:    votifier.StaticServiceTokenIdentifier(token),
+		{
+			PrivateKey:    key,
+			TokenProvider: votifier.StaticTokenProvider(token),
 		},
 	}
 
-	server := votifier.NewServer(
-		func(vote votifier.Vote, version votifier.VotifierProtocol, meta interface{}) {
-			log.Println("Got vote: ", vote, ", version: ", version)
-		}, r)
-	server.ListenAndServe(*address)
+	server := votifier.Server{
+		VoteHandler: func(vote *votifier.Vote, protocol votifier.Protocol) error {
+			log.Printf("Received vote: %+v, Version %d", vote, protocol)
+			return nil
+		},
+		Records: r,
+		OnErr: func(c net.Conn, err error) {
+			log.Printf("Error handling vote from %s: %v", c.RemoteAddr(), err)
+		},
+	}
+	err = server.ListenAndServe(*address)
+	if err != nil {
+		log.Fatalf("listening and serving: %v", err)
+	}
 }

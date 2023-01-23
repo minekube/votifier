@@ -1,25 +1,36 @@
 package votifier
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+	"time"
+)
 
-func TestSerializationv2(t *testing.T) {
-	v := NewVote("golang", "golang", "127.0.0.1")
+func TestEncodeV2(t *testing.T) {
+	v := Vote{
+		ServiceName: "golang",
+		Username:    "golang",
+		Address:     "127.0.0.1",
+	}
 
 	// Try to encrypt this vote.
-	s, err := v.serializev2("abcxyz", "xyz")
+	s, err := v.EncodeV2("abcxyz", "xyz")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
 	// Try to decrypt this vote.
-	d, err := deserializev2(*s, StaticServiceTokenIdentifier("abcxyz"), "xyz")
+	var d Vote
+	err = d.DecodeV2(s, StaticTokenProvider("abcxyz"), "xyz")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	if v != *d {
-		t.Error("Votes don't match: ", v, "-", *d)
+	v.Timestamp = v.Timestamp.Round(time.Second)
+	d.Timestamp = d.Timestamp.Round(time.Second)
+	if !reflect.DeepEqual(v, d) {
+		t.Error("votes don't match: ", v, "-", d)
 	}
 }

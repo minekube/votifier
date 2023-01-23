@@ -7,28 +7,47 @@ import (
 	"strings"
 )
 
-func deserializev1(msg []byte, privateKey *rsa.PrivateKey) (*Vote, error) {
-	decrypted, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, msg)
+// DecodeV1 decodes the vote from the V1 protocol.
+func (v *Vote) DecodeV1(data []byte, key *rsa.PrivateKey) error {
+	if v == nil {
+		*v = Vote{}
+	}
+	decrypted, err := rsa.DecryptPKCS1v15(rand.Reader, key, data)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to decrypt vote: %w", err)
 	}
 
 	elements := strings.Split(string(decrypted), "\n")
 	if len(elements) != 6 {
-		return nil, fmt.Errorf("Element count is invalid; wanted 6, got %d", len(elements))
+		return fmt.Errorf("invalid element count, wanted 6, got %d", len(elements))
 	}
 	if elements[0] != "VOTE" {
-		return nil, fmt.Errorf("First element is incorrect; expected 'VOTE', got %s", elements[0])
+		return fmt.Errorf("first element is incorrect; expected 'VOTE', got %s", elements[0])
 	}
-	return &Vote{elements[1], elements[2], elements[3], elements[4]}, nil
+	v.ServiceName = elements[1]
+	v.Username = elements[2]
+	v.Address = elements[3]
+	v.Timestamp = parseTime(elements[4])
+	return nil
 }
 
-// Serializes the vote.
-func (vote Vote) serializev1(publicKey *rsa.PublicKey) (*[]byte, error) {
-	s := strings.Join([]string{"VOTE", vote.ServiceName, vote.Username, vote.Address, vote.Timestamp, ""}, "\n")
+// EncodeV1 encodes the vote to the V1 protocol.
+func (v *Vote) EncodeV1(publicKey *rsa.PublicKey) (*[]byte, error) {
+	if v.Timestamp.IsZero() {
+		v.Timestamp = timeNow()
+	}
+
+	s := strings.Join([]string{
+		"VOTE",
+		v.ServiceName,
+		v.Username,
+		v.Address,
+		formatTimeMillis(v.Timestamp),
+		"",
+	}, "\n")
 	msg := []byte(s)
 
-	// Encrypt the vote using the supplied public key.
+	// Encrypt the v using the supplied public key.
 	encrypted, err := rsa.EncryptPKCS1v15(rand.Reader, publicKey, msg)
 	if err != nil {
 		return nil, err

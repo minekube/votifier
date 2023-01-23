@@ -3,18 +3,17 @@ package votifier
 import (
 	"crypto/rsa"
 	"errors"
+	"fmt"
 	"net"
-	"strings"
+	"reflect"
 	"testing"
 )
 
 var (
-	Protocols = []VotifierProtocol{VotifierV1, VotifierV2}
+	Protocols = []Protocol{V1, V2}
 )
 
 func TestServer(t *testing.T) {
-	v := NewVote("golang", "golang", "127.0.0.1")
-
 	// Generate a set of keys for later use
 	key, err := rsa.GenerateKey(new(badRandomReader), 2048)
 	if err != nil {
@@ -23,50 +22,61 @@ func TestServer(t *testing.T) {
 	}
 
 	for _, i := range Protocols {
-		vl := func(rv Vote, ver VotifierProtocol, meta interface{}) {
-			if rv != v {
-				t.Error("Vote received did not match original")
+		t.Run(fmt.Sprintf("Protocol %d", i), func(t *testing.T) {
+			v := Vote{
+				ServiceName: "golang",
+				Username:    "golang",
+				Address:     "127.0.0.1",
+			}
+			vl := func(rv *Vote, ver Protocol) error {
+				if reflect.DeepEqual(v, *rv) {
+					t.Error("Vote received did not match original")
+				}
+
+				if ver != i {
+					t.Errorf("Vote is not v %d", i)
+				}
+				return nil
 			}
 
-			if ver != i {
-				t.Error("Vote is not v" + string(i))
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Error(err)
 			}
-		}
+			defer listener.Close()
 
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Error(err)
-		}
-		defer listener.Close()
+			var client Client
+			switch i {
+			case V1:
+				pk := key.PublicKey
+				client = NewV1Client(listener.Addr().String(), &pk)
+			case V2:
+				client = NewV2Client(listener.Addr().String(), "abcxyz")
+			}
+			r := []ReceiverRecord{
+				{
+					PrivateKey:    key,
+					TokenProvider: StaticTokenProvider("abcxyz"),
+				},
+			}
+			server := Server{
+				VoteHandler: vl,
+				Records:     r,
+			}
+			go server.Serve(listener) //nolint:errcheck
 
-		var client Client
-		switch i {
-		case VotifierV1:
-			pk := key.PublicKey
-			client = NewV1Client(listener.Addr().String(), &pk)
-		case VotifierV2:
-			client = NewV2Client(listener.Addr().String(), "abcxyz")
-		}
-		r := []ReceiverRecord{
-			ReceiverRecord{
-				PrivateKey: key,
-				TokenId:    StaticServiceTokenIdentifier("abcxyz"),
-				Metadata:   nil,
-			},
-		}
-		server := NewServer(vl, r)
-		go server.Serve(listener)
-
-		err = client.SendVote(v)
-		if err != nil {
-			t.Error(err)
-		}
+			err = client.SendVote(v)
+			if err != nil {
+				t.Error(err)
+			}
+		})
 	}
 }
 
 func TestServerv2Panic(t *testing.T) {
-	vl := func(rv Vote, ver VotifierProtocol, meta interface{}) {
-		panic(errors.New("boom"))
+	expectedErr := errors.New("test error")
+	vl := func(rv *Vote, ver Protocol) error {
+		return expectedErr
 	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -75,22 +85,29 @@ func TestServerv2Panic(t *testing.T) {
 	}
 	defer listener.Close()
 	r := []ReceiverRecord{
-		ReceiverRecord{
-			PrivateKey: nil,
-			TokenId:    StaticServiceTokenIdentifier("abcxyz"),
-			Metadata:   nil,
+		{
+			PrivateKey:    nil,
+			TokenProvider: StaticTokenProvider("abcxyz"),
 		},
 	}
-	server := NewServer(vl, r)
-	go server.Serve(listener)
+	server := Server{
+		VoteHandler: vl,
+		Records:     r,
+	}
+	go server.Serve(listener) //nolint:errcheck
 
+	vote := Vote{
+		ServiceName: "golang",
+		Username:    "golang",
+		Address:     "127.0.0.1",
+	}
 	client := NewV2Client(listener.Addr().String(), "abcxyz")
-	err = client.SendVote(NewVote("golang", "golang", "127.0.0.1"))
+	err = client.SendVote(vote)
 	if err == nil {
 		t.Error("expected error, but didn't get any")
 	}
 
-	if !strings.HasSuffix(err.Error(), "panic: boom") {
-		t.Error("invalid error from error")
+	if errors.Is(err, expectedErr) {
+		t.Errorf("expected error %q, but got %q", expectedErr, err)
 	}
 }

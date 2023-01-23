@@ -1,15 +1,14 @@
-// +build ignore
-
 package main
 
 import (
-	".."
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"flag"
-	"io/ioutil"
 	"log"
+	"os"
+
+	"go.minekube.com/votifier"
 )
 
 var (
@@ -23,7 +22,7 @@ var (
 func main() {
 	flag.Parse()
 
-	file, err := ioutil.ReadFile(*keyFile)
+	file, err := os.ReadFile(*keyFile)
 	if err != nil {
 		log.Fatalf("loading public key: %v", err)
 	}
@@ -39,11 +38,15 @@ func main() {
 
 	key := pkt.(*rsa.PublicKey)
 	client := votifier.NewV1Client(*address, key)
-	v := votifier.NewVote(*serviceName, *username, *vAddress)
+	v := votifier.Vote{
+		ServiceName: *serviceName,
+		Username:    *username,
+		Address:     *vAddress,
+	}
 	err = client.SendVote(v)
 	if err != nil {
 		log.Fatalf("Failed to send vote: %v", err)
-	} else {
-		log.Println("Vote sent!")
 	}
+
+	log.Println("Vote sent!")
 }

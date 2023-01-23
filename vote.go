@@ -1,7 +1,6 @@
 package votifier
 
 import (
-	"strconv"
 	"time"
 )
 
@@ -17,10 +16,5 @@ type Vote struct {
 	Address string `json:"address"`
 
 	// The timestamp this vote was issued.
-	Timestamp string `json:"timeStamp"`
-}
-
-// NewVote creates a new vote and pre-fills the timestamp.
-func NewVote(serviceName string, username string, address string) Vote {
-	return Vote{serviceName, username, address, strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)}
+	Timestamp time.Time `json:"timeStamp"`
 }

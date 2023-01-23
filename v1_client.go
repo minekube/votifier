@@ -2,8 +2,7 @@ package votifier
 
 import (
 	"crypto/rsa"
-	"net"
-	"time"
+	"fmt"
 )
 
 // V1Client represents a Votifier v1 client.
@@ -19,18 +18,20 @@ func NewV1Client(address string, publicKey *rsa.PublicKey) *V1Client {
 
 // SendVote sends a vote through the client.
 func (client *V1Client) SendVote(vote Vote) error {
-	conn, err := net.DialTimeout("tcp", client.address, 3*time.Second)
+	conn, err := dial(client.address)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	conn.SetDeadline(time.Now().Add(3 * time.Second))
-	serialized, err := vote.serializev1(client.publicKey)
+	serialized, err := vote.EncodeV1(client.publicKey)
 	if err != nil {
 		return err
 	}
 
 	_, err = conn.Write(*serialized)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to send vote: %w", err)
+	}
+	return nil
 }

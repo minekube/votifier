@@ -7,12 +7,9 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"strconv"
+	"fmt"
 	"strings"
-)
-
-const (
-	v2Magic int16 = 0x733A
+	"time"
 )
 
 type votifier2Wrapper struct {
@@ -28,84 +25,84 @@ type votifier2Inner struct {
 	Challenge   string `json:"challenge"`
 }
 
-// ServiceTokenIdentifier defines a function for identifying a token for a service.
-type ServiceTokenIdentifier func(string) string
+const v2Magic int16 = 0x733A
 
-func deserializev2(msg []byte, tokenFunc ServiceTokenIdentifier, challenge string) (*Vote, error) {
-	reader := bytes.NewReader(msg)
+func (v *Vote) DecodeV2(data []byte, tokenProvider TokenProvider, challenge string) error {
+	rd := bytes.NewReader(data)
 
-	// verify v2 magic
+	// verify v2 magic
 	var magicRead int16
-	err := binary.Read(reader, binary.BigEndian, &magicRead)
+	err := binary.Read(rd, binary.BigEndian, &magicRead)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if magicRead != v2Magic {
-		return nil, errors.New("v2 magic mismatch")
+		return errors.New("v2 magic mismatch")
 	}
 
 	// read message length
-	var bytes int16
-	if err = binary.Read(reader, binary.BigEndian, &bytes); err != nil {
-		return nil, err
+	var length int16
+	if err = binary.Read(rd, binary.BigEndian, &length); err != nil {
+		return err
 	}
 
 	// now for the fun part
 	var wrapper votifier2Wrapper
-	if err = json.NewDecoder(reader).Decode(&wrapper); err != nil {
-		return nil, err
+	if err = json.NewDecoder(rd).Decode(&wrapper); err != nil {
+		return err
 	}
 
 	var vote votifier2Inner
 	if err = json.NewDecoder(strings.NewReader(wrapper.Payload)).Decode(&vote); err != nil {
-		return nil, err
+		return err
 	}
 
 	// validate challenge
 	if vote.Challenge != challenge {
-		return nil, errors.New("challenge invalid")
+		return errors.New("invalid challenge")
 	}
 
 	// validate HMAC
-	m := hmac.New(sha256.New, []byte(tokenFunc(vote.ServiceName)))
+	token := tokenProvider.Token(vote.ServiceName)
+	m := hmac.New(sha256.New, []byte(token))
 	m.Write([]byte(wrapper.Payload))
 	s := m.Sum(nil)
 	if !hmac.Equal(s, wrapper.Signature) {
-		return nil, errors.New("signature invalid")
+		return errors.New("invalid signature")
 	}
 
-	return &Vote{
-		ServiceName: vote.ServiceName,
-		Address:     vote.Address,
-		Username:    vote.Username,
-		Timestamp:   strconv.FormatInt(vote.Timestamp, 10),
-	}, nil
+	v.ServiceName = vote.ServiceName
+	v.Username = vote.Username
+	v.Address = vote.Address
+	v.Timestamp = time.UnixMilli(vote.Timestamp)
+	return nil
 }
 
-func (v Vote) serializev2(token string, challenge string) (*[]byte, error) {
-	ts, err := strconv.ParseInt(v.Timestamp, 10, 64)
-	if err != nil {
-		// do our best
-		ts = 0
+func (v *Vote) EncodeV2(token string, challenge string) ([]byte, error) {
+	if v.Timestamp.IsZero() {
+		v.Timestamp = timeNow()
 	}
 	inner := votifier2Inner{
 		ServiceName: v.ServiceName,
 		Address:     v.Address,
 		Username:    v.Username,
-		Timestamp:   ts,
+		Timestamp:   v.Timestamp.UnixMilli(),
 		Challenge:   challenge,
 	}
 
 	// encode inner vote and generate outer package
-	var innerBuf bytes.Buffer
-	if err = json.NewEncoder(&innerBuf).Encode(inner); err != nil {
+	buf := new(bytes.Buffer)
+	if err := json.NewEncoder(buf).Encode(inner); err != nil {
 		return nil, err
 	}
 
-	innerJSON := innerBuf.String()
+	innerJSON := buf.String()
 	m := hmac.New(sha256.New, []byte(token))
-	innerBuf.WriteTo(m)
+	_, err := buf.WriteTo(m)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write to hmac: %w", err)
+	}
 
 	wrapper := votifier2Wrapper{
 		Payload:   innerJSON,
@@ -114,18 +111,21 @@ func (v Vote) serializev2(token string, challenge string) (*[]byte, error) {
 
 	// assemble full package
 	var wrapperBuf bytes.Buffer
-	if err = json.NewEncoder(&wrapperBuf).Encode(wrapper); err != nil {
-		return nil, err
+	if err := json.NewEncoder(&wrapperBuf).Encode(wrapper); err != nil {
+		return nil, fmt.Errorf("failed to encode wrapper: %w", err)
 	}
 
-	var finalBuf bytes.Buffer
-	if err = binary.Write(&finalBuf, binary.BigEndian, v2Magic); err != nil {
+	buf.Reset()
+	if err := binary.Write(buf, binary.BigEndian, v2Magic); err != nil {
 		return nil, err
 	}
-	if err = binary.Write(&finalBuf, binary.BigEndian, int16(wrapperBuf.Len())); err != nil {
+	if err := binary.Write(buf, binary.BigEndian, int16(wrapperBuf.Len())); err != nil {
 		return nil, err
 	}
-	wrapperBuf.WriteTo(&finalBuf)
-	finalBytes := finalBuf.Bytes()
-	return &finalBytes, nil
+	_, err = wrapperBuf.WriteTo(buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write to buffer: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }
