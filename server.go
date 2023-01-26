@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -47,6 +48,13 @@ func (s *Server) ListenAndServe(address string) error {
 
 // Serve serves requests on the provided listener.
 func (s *Server) Serve(ln net.Listener) error {
+	if len(s.Records) == 0 {
+		return errors.New("no records provided")
+	}
+	if s.VoteHandler == nil {
+		return errors.New("no vote handler provided")
+	}
+
 	for {
 		// Wait for a connection.
 		conn, err := ln.Accept()
