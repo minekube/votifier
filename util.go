@@ -36,7 +36,7 @@ var timeNow = time.Now
 func parseTime(unixMillis string) time.Time {
 	now := timeNow()
 	ms, err := strconv.ParseInt(unixMillis, 10, 64)
-	if err != nil {
+	if err == nil {
 		unix := time.UnixMilli(ms)
 		// some vote sites don't sent a timestamp,
 		// fallback to now if older than 1 hour

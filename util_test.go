@@ -1,38 +1,45 @@
 package votifier
 
 import (
+	"strconv"
 	"testing"
 	"time"
 )
 
 func TestParseTime(t *testing.T) {
 	now := time.Now()
-	timeNow = func() time.Time { return now }
 
-	t.Run("valid", func(t *testing.T) {
-		unixMillis := "1609459200000"
-		expected := now
-		result := parseTime(unixMillis)
-		if !result.Equal(expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
+	t.Run("Valid Unix Millis", func(t *testing.T) {
+		unixMillis := strconv.FormatInt(now.UnixMilli(), 10)
+		parsedTime := parseTime(unixMillis)
+		expectedTime := now.UnixMilli()
+		actualTime := parsedTime.UnixMilli()
+
+		if expectedTime != actualTime {
+			t.Errorf("Expected %v, but got %v", expectedTime, actualTime)
 		}
 	})
 
-	t.Run("invalid", func(t *testing.T) {
-		unixMillis := "" // invalid
-		expected := now
-		result := parseTime(unixMillis)
-		if !result.Equal(expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
+	t.Run("Invalid Unix Millis", func(t *testing.T) {
+		unixMillis := "invalid"
+		parsedTime := parseTime(unixMillis)
+		expectedTime := now.UnixMilli()
+		actualTime := parsedTime.UnixMilli()
+
+		if expectedTime != actualTime {
+			t.Errorf("Expected %v, but got %v", expectedTime, actualTime)
 		}
 	})
 
-	t.Run("older than 1 hour", func(t *testing.T) {
-		unixMillis := "0"
-		expected := now
-		result := parseTime(unixMillis)
-		if !result.Equal(expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
+	t.Run("Older than 1 hour", func(t *testing.T) {
+		oneHourAgo := now.Add(-2 * time.Hour)
+		unixMillis := strconv.FormatInt(oneHourAgo.UnixMilli(), 10)
+		parsedTime := parseTime(unixMillis)
+		expectedTime := now.UnixMilli()
+		actualTime := parsedTime.UnixMilli()
+
+		if expectedTime != actualTime {
+			t.Errorf("Expected %v, but got %v", expectedTime, actualTime)
 		}
 	})
 }
