@@ -114,7 +114,7 @@ func (s *Server) HandleConn(c net.Conn) error {
 			}
 			err = s.VoteHandler(v, V1)
 			continue
-		} else {
+		} else if record.TokenProvider != nil {
 			err = v.DecodeV2(data[:read], record.TokenProvider, challenge)
 			if err != nil {
 				continue
